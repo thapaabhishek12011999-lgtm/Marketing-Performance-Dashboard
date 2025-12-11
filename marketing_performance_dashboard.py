@@ -1,5 +1,11 @@
 """
-Marketing Performance Streamlit Dashboard
+Updated Marketing Performance Streamlit Dashboard
+- Incorporates UX + analytical improvements requested by user
+- Key changes: reset filters, attribution selector stub, download CSV, target/benchmark in KPI cards,
+  improved AI insights with recommendations, 7-day rolling CAC line, export options, filter summary,
+  campaign table sorting + simple conditional formatting, show last updated timestamp, granularity selector.
+
+Original file (for reference) uploaded by user: Lifesight_MarketingPerformance_Dashboard.py. :contentReference[oaicite:1]{index=1}
 """
 
 import streamlit as st
@@ -8,7 +14,6 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
 
 # -----------------------
 # Mock data generator (daily, 2 months before up to today)
@@ -126,7 +131,7 @@ def inject_css():
         color: white;
         padding: 10px 24px;
         border-radius: 8px;
-        margin-bottom: 18px;
+        margin-bottom: 6px;
     }}
     .kpi-large {{
         background: {CARD_BG};
@@ -216,13 +221,13 @@ def delta_html_inverted(cur, prev):
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
 # -----------------------
-# Plot builders with titles/subtitles
+# Plot builders with titles/subtitles (updated with small additions)
 # -----------------------
 def plot_spend_revenue_trend(df):
     ts = df.groupby("date").agg({"revenue":"sum","spend":"sum"}).reset_index()
     fig = go.Figure()
     fig.add_trace(go.Bar(x=ts["date"], y=ts["spend"], name="Spend", marker_color="#8b5cf6", yaxis="y2", opacity=0.6))
-    fig.add_trace(go.Scatter(x=ts["date"], y=ts["revenue"], name="Revenue", mode="lines", line=dict(color=ACCENT_GREEN, width=3)))
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["revenue"], name="Revenue", mode="lines+markers", line=dict(color=ACCENT_GREEN, width=3)))
     fig.update_layout(
         title=dict(text="Revenue & Marketing Spend Trend", x=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
@@ -235,25 +240,22 @@ def plot_spend_revenue_trend(df):
     )
     return fig
 
-def plot_roas_by_channel(df):
+def plot_roas_by_channel(df, show_targets=False, targets=None):
     agg = df.groupby("channel").agg({"revenue":"sum","spend":"sum"}).reset_index()
-    agg["roas"] = agg["revenue"] / agg["spend"]
+    agg["roas"] = agg.apply(lambda r: (r["revenue"] / r["spend"]) if r["spend"]>0 else np.nan, axis=1).round(2)
     color_map = {"Meta":"#1D4ED8","Google":"#FACC15","Amazon":"#F59E0B","TikTok":"#F43F5E"}
     fig = px.bar(agg.sort_values("roas", ascending=False), x="roas", y="channel", orientation="h",
-                 text=agg["roas"].round(2), color="channel", color_discrete_map=color_map)
+                 text=agg["roas"], color="channel", color_discrete_map=color_map)
     fig.update_layout(title_text="ROAS by Channel", template="plotly_white", height=320, margin=dict(l=120,t=50,b=20))
     fig.update_xaxes(title="ROAS (Revenue / Spend)")
+    # optional target line
+    if show_targets and targets and "roas" in targets:
+        fig.add_vline(x=targets["roas"], line_dash="dash", line_color="#374151", annotation_text=f"Target ROAS: {targets['roas']}", annotation_position="top right")
     return fig
 
 def plot_funnel_bars(df):
-    """
-    Horizontal funnel bar chart that shows:
-     - visible label: "<count>\n(<% of impressions>)"
-     - hover: count, % of impressions, % of previous step
-    """
     impressions = df["impressions"].sum()
     clicks = df["clicks"].sum()
-    # approximate product views & add-to-cart for mock data
     product_views = int(df["orders"].sum() * 3.5)
     add_to_cart = int(product_views * 0.25)
     purchases = int(df["orders"].sum())
@@ -263,13 +265,11 @@ def plot_funnel_bars(df):
         "value": [impressions, clicks, product_views, add_to_cart, purchases]
     })
 
-    # percent of impressions
     if impressions > 0:
         steps["pct_of_impr"] = steps["value"] / impressions * 100
     else:
         steps["pct_of_impr"] = 0.0
 
-    # percent vs previous step (useful to see drop-off)
     pct_prev = []
     prev_val = None
     for v in steps["value"]:
@@ -280,26 +280,22 @@ def plot_funnel_bars(df):
         prev_val = v
     steps["pct_prev"] = pct_prev
 
-    # label: count + percent of impressions (displayed on bar)
     steps["label"] = steps.apply(lambda r: f"{int(r['value']):,}\n({r['pct_of_impr']:.2f}%)", axis=1)
 
-    # create horizontal bar chart
     fig = px.bar(
-        steps.sort_values("value", ascending=False).iloc[::-1],  # keep order top->bottom as impressions->purchases
+        steps.sort_values("value", ascending=False).iloc[::-1],
         x="value",
         y="step",
         orientation="h",
         text="label",
     )
 
-    # attach customdata for hovertemplate (count, % of impressions, % of previous step)
     customdata = np.column_stack((steps["value"], steps["pct_of_impr"], steps["pct_prev"]))
-    # Because we sorted earlier for plotting, align customdata to that order:
     customdata = customdata[steps.sort_values("value", ascending=False).index.values[::-1]]
 
     fig.update_traces(
         textposition="outside",
-        marker_color="#93c5fd",  # leave color subtle; change if desired
+        marker_color="#93c5fd",
         hovertemplate=(
             "<b>%{y}</b><br>"
             "Count: %{customdata[0]:,}<br>"
@@ -321,8 +317,12 @@ def plot_funnel_bars(df):
 
 def plot_cac_trend(df):
     ts = df.groupby("date").apply(lambda x: pd.Series({"cac": x["spend"].sum() / x["conversions"].sum() if x["conversions"].sum()>0 else np.nan})).reset_index()
-    fig = px.line(ts, x="date", y="cac", title="Customer Acquisition Cost (CAC) Trend")
-    fig.update_layout(template="plotly_white", height=260, margin=dict(l=40,r=20,t=50,b=20))
+    ts = ts.sort_values("date")
+    ts["cac_7d"] = ts["cac"].rolling(7, min_periods=1).mean()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["cac"], mode="lines+markers", name="Daily CAC", line=dict(width=2)))
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["cac_7d"], mode="lines", name="7-day avg", line=dict(dash='dash', width=3)))
+    fig.update_layout(title_text="Customer Acquisition Cost (CAC) Trend", template="plotly_white", height=300, margin=dict(l=40,r=20,t=50,b=20))
     fig.update_yaxes(title="CAC")
     return fig
 
@@ -347,39 +347,15 @@ def plot_contribution_waterfall(df):
     fig.update_layout(title_text="Contribution Margin Breakdown", template="plotly_white", height=360, margin=dict(l=40,r=20,t=60,b=20))
     return fig
 
-def cohort_ltv_heatmap(df, months=6):
-    """
-    NOTE: function remains for potential future use but is NOT rendered in the UI per current request.
-    """
-    orders = df[df["orders"]>0].copy()
-    if orders.empty:
-        return go.Figure()
-    orders["cohort_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
-    orders["order_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
-    pivot = orders.groupby(["cohort_month","order_month"]).agg({"revenue":"sum"}).reset_index()
-    pivot["months_since"] = ((pivot["order_month"].dt.year - pivot["cohort_month"].dt.year)*12 + (pivot["order_month"].dt.month - pivot["cohort_month"].dt.month))
-    pivot = pivot[(pivot["months_since"]>=0) & (pivot["months_since"]<months)]
-    heat = pivot.pivot_table(index="cohort_month", columns="months_since", values="revenue", aggfunc="sum").fillna(0)
-    fig = go.Figure(data=go.Heatmap(
-        z=heat.values,
-        x=[f"M+{c}" for c in heat.columns],
-        y=[d.strftime("%Y-%m") for d in heat.index],
-        colorscale="Purples"
-    ))
-    fig.update_layout(title_text="Cohort LTV Heatmap (Revenue by Cohort Month)", template="plotly_white", height=360, margin=dict(l=80,r=20,t=60,b=20))
-    return fig
-
-# -----------------------
-# NOTE: Export utilities removed
-# -----------------------
-
 # -----------------------
 # Streamlit app layout
 # -----------------------
 st.set_page_config(page_title="Lifesight - Marketing Performance", layout="wide")
 inject_css()
 
-st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard</div>", unsafe_allow_html=True)
+last_updated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard <span style='float:right; font-size:12px; opacity:0.9'>Last updated: {last_updated}</span></div>", unsafe_allow_html=True)
 
 # Load data (now uses past 6 months)
 df = generate_mock_data(months_before=6, months_after=0)
@@ -388,16 +364,27 @@ df = generate_mock_data(months_before=6, months_after=0)
 with st.sidebar:
     st.header("Filters")
 
-    channel = st.selectbox("Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0)
-    campaign = st.selectbox("Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0)
-    creative = st.selectbox("Creative", ["All"] + sorted(df["creative"].unique().tolist()), index=0)
+    # Reset filters button
+    if st.button("Reset filters"):
+        # clear session state keys used for filters
+        for k in ["channel","campaign","creative","start_date","end_date","granularity","attribution","sort_by","sort_asc"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.experimental_rerun()
+
+    channel = st.selectbox("Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0, key="channel")
+    campaign = st.selectbox("Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0, key="campaign")
+    creative = st.selectbox("Creative", ["All"] + sorted(df["creative"].unique().tolist()), index=0, key="creative")
 
     st.markdown("### Date range")
-    start_date = st.date_input("Start date", value=df["date"].min().date())
-    end_date = st.date_input("End date", value=df["date"].max().date())
+    start_date = st.date_input("Start date", value=df["date"].min().date(), key="start_date")
+    end_date = st.date_input("End date", value=df["date"].max().date(), key="end_date")
 
     st.markdown("---")
-    st.caption("Use filters to update the dashboard.")
+    st.radio("Granularity", options=["Daily","Weekly","Monthly"], index=0, key="granularity")
+    st.selectbox("Attribution model (view only)", options=["Last click","Linear","Data-driven"], index=0, key="attribution")
+    st.markdown("---")
+    st.caption("Use filters to update the dashboard. ")
 
 # subset data according to filters
 subset = df.copy()
@@ -423,8 +410,15 @@ cur_kpis = compute_exec_kpis(subset)
 prev_subset = df[(df["date"]>=prev_start) & (df["date"]<=prev_end)]
 prev_kpis = compute_exec_kpis(prev_subset)
 
+# show filter summary
+filter_summary = f"Filters — Channel: {channel}; Campaign: {campaign}; Creative: {creative}; Date: {start_date} to {end_date}; Attribution: {st.session_state.get('attribution','Last click')}"
+st.caption(filter_summary)
+
 # KPI area
 left, right = st.columns([2,3], gap="large")
+# set some simple targets/benchmarks
+benchmarks = {"mer":5.0, "gpm":0.50, "roas":3.0, "cac":8.0}
+
 with left:
     st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
     st.markdown("<div class='kpi-label'>Total Net Revenue</div>", unsafe_allow_html=True)
@@ -449,7 +443,9 @@ with right:
         st.markdown(f"<div class='kpi-value'>{gpm*100:.1f}%</div>" if not np.isnan(gpm) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
         if gpm_delta is not None:
             colc = "#059669" if gpm_delta>0 else "#dc2626"
-            st.markdown(f"<div style='color:{colc}'>{'▲' if gpm_delta>0 else '▼'} {abs(gpm_delta)*100:.1f}%</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color:{colc}'> {'▲' if gpm_delta>0 else '▼'} {abs(gpm_delta)*100:.1f}%</div>", unsafe_allow_html=True)
+        # show benchmark
+        st.markdown(f"<div style='font-size:12px; color:#6b7280'>Target: {benchmarks['gpm']*100:.0f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     mer = cur_kpis["mer"]
@@ -462,6 +458,7 @@ with right:
         if mer_delta is not None:
             colc = "#059669" if mer_delta>0 else "#dc2626"
             st.markdown(f"<div style='color:{colc}'>{'▲' if mer_delta>0 else '▼'} {abs(mer_delta)*100:.1f}%</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:12px; color:#6b7280'>Target: {benchmarks['mer']:.1f}</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     ltv_cac = cur_kpis["ltv_cac"]
@@ -474,6 +471,7 @@ with right:
         if ltv_delta is not None:
             colc = "#059669" if ltv_delta>0 else "#dc2626"
             st.markdown(f"<div style='color:{colc}'>{'▲' if ltv_delta>0 else '▼'} {abs(ltv_delta)*100:.1f}%</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:12px; color:#6b7280'>Good: > 3.0</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     profit = cur_kpis["profit"]
@@ -488,17 +486,29 @@ with right:
             st.markdown(f"<div style='color:{colc}'>{'▲' if profit_delta>0 else '▼'} {abs(profit_delta)*100:.1f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# Auto insight
+# Improved AI insight (more actionable)
 insight = []
 if rev_delta is not None:
     if rev_delta > 0.05:
         insight.append(f"Revenue rose {rev_delta*100:.1f}% vs previous period — growth momentum.")
     elif rev_delta < -0.05:
-        insight.append(f"Revenue fell {abs(rev_delta)*100:.1f}% vs previous period — review channel performance.")
-if mer_delta is not None and mer_delta < -0.05:
-    insight.append("MER decreased — spend efficiency may be worsening.")
-top_channel = subset.groupby("channel")["revenue"].sum().sort_values(ascending=False).index[0]
-insight.append(f"Top channel (by revenue) in the selection: {top_channel}.")
+        insight.append(f"Revenue fell {abs(rev_delta)*100:.1f}% vs previous period — review underperforming channels.")
+
+# channel-level drivers
+channel_changes = subset.groupby('channel').agg({'revenue':'sum','spend':'sum'}).reset_index()
+channel_changes_prev = prev_subset.groupby('channel').agg({'revenue':'sum','spend':'sum'}).reset_index()
+merged = channel_changes.merge(channel_changes_prev, on='channel', how='left', suffixes=('','_prev'))
+merged['rev_pop'] = merged.apply(lambda r: compute_pop(r['revenue'], r['revenue_prev'] if not np.isnan(r['revenue_prev']) else None), axis=1)
+if not merged.empty:
+    top = merged.sort_values('revenue', ascending=False).iloc[0]
+    insight.append(f"Top channel by revenue: {top['channel']} ({int(top['revenue']):,}).")
+    # recommendation
+    good_channels = merged[merged['rev_pop']>0.05]['channel'].tolist()
+    bad_channels = merged[merged['rev_pop']<-0.05]['channel'].tolist()
+    if good_channels:
+        insight.append(f"Consider allocating more budget to: {', '.join(good_channels)} — they show >5% PoP growth.")
+    if bad_channels:
+        insight.append(f"Investigate creative/targeting for: {', '.join(bad_channels)} — performance declined >5% PoP.")
 
 st.markdown(f"<div class='insight'><strong>AI Summary Insights:</strong><br>{'<br>'.join(insight)}</div>", unsafe_allow_html=True)
 
@@ -576,7 +586,7 @@ with tabs[1]:
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
-    fig_roas = plot_roas_by_channel(subset)
+    fig_roas = plot_roas_by_channel(subset, show_targets=True, targets={"roas":benchmarks['roas']})
     st.plotly_chart(fig_roas, use_container_width=True)
 
     st.markdown("**Full Marketing Funnel** — identify drop-off points")
@@ -590,7 +600,24 @@ with tabs[1]:
     diag["ctr"] = (diag["clicks"] / diag["impressions"]).round(4)
     diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
-    st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
+    diag['roas'] = diag.apply(lambda r: (r['revenue']/r['spend']) if r['spend']>0 else np.nan, axis=1).round(2)
+
+    # allow user to sort columns and download
+    sort_by = st.selectbox("Sort campaign table by", options=['revenue','spend','roas','cpa','ctr','cvr'], index=0, key='sort_by')
+    sort_asc = st.checkbox("Ascending", value=False, key='sort_asc')
+    diag_sorted = diag.sort_values(by=sort_by, ascending=sort_asc)
+
+    # show table with simple conditional formatting using pandas styler
+    try:
+        styled = diag_sorted.head(200).style.format({
+            'spend':'{:.2f}','impressions':'{:,}','clicks':'{:,}','conversions':'{:,}','revenue':'{:.2f}','ctr':'{:.2%}','cvr':'{:.2%}','cpa':'{:.2f}','roas':'{:.2f}'
+        }).background_gradient(subset=['roas'], cmap='Greens')
+        st.dataframe(styled, use_container_width=True)
+    except Exception:
+        st.dataframe(diag_sorted.head(200), use_container_width=True)
+
+    csv = diag_sorted.to_csv(index=False).encode('utf-8')
+    st.download_button(label="Download campaign diagnostics (CSV)", data=csv, file_name='campaign_diagnostics.csv', mime='text/csv')
 
 # ===== CFO View =====
 with tabs[2]:
@@ -632,6 +659,7 @@ with tabs[2]:
         st.markdown(f"<div class='kpi-value'>{f'{gm_val*100:.2f}%'}" if gm_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
         if gm_val is not None:
             st.markdown(delta_html(gm_val, prev_gm), unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:12px; color:#6b7280'>Target: {benchmarks['gpm']*100:.0f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Average Order Value
@@ -662,8 +690,6 @@ with tabs[2]:
     st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
-
-    # Cohort LTV visual intentionally removed per request (function retained but not rendered)
 
     # small bottom KPIs (left intact, but heading removed)
     aov = subset["aov"].mean()

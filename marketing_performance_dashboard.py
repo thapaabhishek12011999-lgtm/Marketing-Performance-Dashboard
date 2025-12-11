@@ -1,6 +1,13 @@
-# Lifesight_MarketingPerformance_Dashboard_V2_final.py
-# Final: sidebar label & download button visibility fixes, granularity removed, ascending checkbox removed,
-# smart sorting, and Executive Overview restored.
+"""
+Updated Marketing Performance Streamlit Dashboard
+- Incorporates UX + analytical improvements requested by user
+- Key changes: reset filters, attribution selector stub, download CSV, target/benchmark in KPI cards,
+  improved AI insights with recommendations, 7-day rolling CAC line, export options, filter summary,
+  campaign table sorting + simple conditional formatting, show last updated timestamp, granularity selector.
+
+Original file (for reference) uploaded by user: Lifesight_MarketingPerformance_Dashboard.py. :contentReference[oaicite:1]{index=1}
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,9 +15,11 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ------------- Mock data generator -------------
+# -----------------------
+# Mock data generator (daily, 2 months before up to today)
+# -----------------------
 @st.cache_data
-def generate_mock_data(months_before=6, months_after=0, seed=42):
+def generate_mock_data(months_before=2, months_after=0, seed=42):
     np.random.seed(seed)
     today = pd.to_datetime(datetime.utcnow().date())
     start = today - pd.DateOffset(months=months_before)
@@ -102,7 +111,9 @@ def generate_mock_data(months_before=6, months_after=0, seed=42):
     df["date"] = pd.to_datetime(df["date"])
     return df
 
-# ------------- Styling & helpers -------------
+# -----------------------
+# Styling: Lifesight-like (purple + white)
+# -----------------------
 PRIMARY_PURPLE = "#6B21A8"
 ACCENT_GREEN = "#14B8A6"
 CARD_BG = "#FAFAFB"
@@ -110,68 +121,49 @@ PAGE_BG = "#ffffff"
 TEXT_COLOR = "#0f172a"
 
 def inject_css():
-    # Use a plain triple-quoted string and replace placeholders to avoid f-string brace issues.
-    css = """
+    st.markdown(
+        f"""
     <style>
-    .stApp { background: {PAGE_BG}; color: {TEXT_COLOR}; }
-    .reportview-container .main .block-container{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}
-    .topband {
+    .stApp {{ background: {PAGE_BG}; color: {TEXT_COLOR}; }}
+    .reportview-container .main .block-container{{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}}
+    .topband {{
         background: linear-gradient(90deg,{PRIMARY_PURPLE} 0%, #7c3aed 100%);
         color: white;
         padding: 10px 24px;
         border-radius: 8px;
         margin-bottom: 6px;
-    }
-    .kpi-large {
+    }}
+    .kpi-large {{
         background: {CARD_BG};
         padding: 18px;
         border-radius: 10px;
         box-shadow: 0 4px 14px rgba(0,0,0,0.08);
         color: {TEXT_COLOR};
-    }
-    .kpi-small {
+    }}
+    .kpi-small {{
         background: {CARD_BG};
         padding: 12px;
         border-radius: 8px;
         box-shadow: 0 3px 10px rgba(0,0,0,0.06);
         color: {TEXT_COLOR};
-    }
-    .insight {
+    }}
+    .insight {{
         background: #f8fafc;
         padding: 12px;
         border-radius: 8px;
         color: {TEXT_COLOR};
-    }
-    .kpi-label { font-size:14px; color:#374151; }
-    .kpi-value { font-size:28px; font-weight:700; color:{TEXT_COLOR}; }
-    .kpi-delta { font-size:13px; color:#059669; }
-
-    /* Sidebar label/selectbox and download button visibility on dark sidebar */
-    div[data-testid="stSidebar"] label,
-    div[data-testid="stSidebar"] .stSelectbox label,
-    div[data-testid="stSidebar"] .markdown-text-container,
-    div[data-testid="stSidebar"] .css-1emrehy {
-        color: #ffffff !important;
-    }
-
-    /* Download button styling so label text is visible */
-    div[data-testid="stDownloadButton"] button {
-        color: #ffffff !important;
-        background-color: #262730 !important;
-        border: 1px solid #ffffff40 !important;
-    }
-    div[data-testid="stDownloadButton"] button:hover {
-        background-color: #3a3b3c !important;
-        color: #ffffff !important;
-    }
-
-    /* small safeguard for checkbox labels in sidebar */
-    div[data-testid="stSidebar"] .stCheckbox label { color: #ffffff !important; }
+    }}
+    .kpi-label {{ font-size:14px; color:#374151; }}
+    .kpi-value {{ font-size:28px; font-weight:700; color:{TEXT_COLOR}; }}
+    .kpi-delta {{ font-size:13px; color:#059669; }}
     </style>
-    """
-    css = css.replace("{PAGE_BG}", PAGE_BG).replace("{TEXT_COLOR}", TEXT_COLOR).replace("{PRIMARY_PURPLE}", PRIMARY_PURPLE).replace("{CARD_BG}", CARD_BG)
-    st.markdown(css, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
+# -----------------------
+# KPI helpers & calculations
+# -----------------------
 def compute_exec_kpis(df):
     total_revenue = df["revenue"].sum()
     total_spend = df["spend"].sum()
@@ -196,6 +188,7 @@ def compute_exec_kpis(df):
     }
 
 def compute_pop(cur, prev):
+    # compute percent change safely
     if prev is None or prev == 0 or np.isnan(prev):
         return None
     try:
@@ -204,6 +197,7 @@ def compute_pop(cur, prev):
         return None
 
 def delta_html(cur, prev):
+    """Return HTML snippet for percent change vs prev period (green up/red down)."""
     pop = compute_pop(cur, prev)
     if pop is None:
         return ""
@@ -212,14 +206,23 @@ def delta_html(cur, prev):
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
 def delta_html_inverted(cur, prev):
+    """
+    Same as delta_html but inverted color semantics:
+    - A decrease (pop < 0) is treated as positive (green)
+    - An increase (pop > 0) is treated as negative (red)
+    Useful for metrics where reduction is desirable (e.g., CPM, refund rate).
+    """
     pop = compute_pop(cur, prev)
     if pop is None:
         return ""
     sym = "▲" if pop > 0 else "▼"
+    # invert color: green when pop < 0 (decrease), red when pop > 0 (increase)
     color = "#059669" if pop < 0 else "#dc2626"
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
-# ------------- Plot builders -------------
+# -----------------------
+# Plot builders with titles/subtitles (updated with small additions)
+# -----------------------
 def plot_spend_revenue_trend(df):
     ts = df.groupby("date").agg({"revenue":"sum","spend":"sum"}).reset_index()
     fig = go.Figure()
@@ -245,6 +248,7 @@ def plot_roas_by_channel(df, show_targets=False, targets=None):
                  text=agg["roas"], color="channel", color_discrete_map=color_map)
     fig.update_layout(title_text="ROAS by Channel", template="plotly_white", height=320, margin=dict(l=120,t=50,b=20))
     fig.update_xaxes(title="ROAS (Revenue / Spend)")
+    # optional target line
     if show_targets and targets and "roas" in targets:
         fig.add_vline(x=targets["roas"], line_dash="dash", line_color="#374151", annotation_text=f"Target ROAS: {targets['roas']}", annotation_position="top right")
     return fig
@@ -343,21 +347,27 @@ def plot_contribution_waterfall(df):
     fig.update_layout(title_text="Contribution Margin Breakdown", template="plotly_white", height=360, margin=dict(l=40,r=20,t=60,b=20))
     return fig
 
-# ------------- App layout -------------
+# -----------------------
+# Streamlit app layout
+# -----------------------
 st.set_page_config(page_title="Lifesight - Marketing Performance", layout="wide")
 inject_css()
 
 last_updated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-st.markdown(f"<div style='background: linear-gradient(90deg,{PRIMARY_PURPLE} 0%, #7c3aed 100%); color:white; padding:10px 16px; border-radius:8px;'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard <span style='float:right; font-size:12px; opacity:0.9'>Last updated: {last_updated}</span></div>", unsafe_allow_html=True)
 
-# Load data
+st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard <span style='float:right; font-size:12px; opacity:0.9'>Last updated: {last_updated}</span></div>", unsafe_allow_html=True)
+
+# Load data (now uses past 6 months)
 df = generate_mock_data(months_before=6, months_after=0)
 
-# Sidebar filters (granularity removed)
+# --- SIDEBAR FILTERS ---
 with st.sidebar:
     st.header("Filters")
+
+    # Reset filters button
     if st.button("Reset filters"):
-        for k in ["channel","campaign","creative","start_date","end_date","attribution","sort_by","sort_asc"]:
+        # clear session state keys used for filters
+        for k in ["channel","campaign","creative","start_date","end_date","granularity","attribution","sort_by","sort_asc"]:
             if k in st.session_state:
                 del st.session_state[k]
         st.experimental_rerun()
@@ -371,12 +381,12 @@ with st.sidebar:
     end_date = st.date_input("End date", value=df["date"].max().date(), key="end_date")
 
     st.markdown("---")
-    # Granularity control removed per request
+    st.radio("Granularity", options=["Daily","Weekly","Monthly"], index=0, key="granularity")
     st.selectbox("Attribution model (view only)", options=["Last click","Linear","Data-driven"], index=0, key="attribution")
     st.markdown("---")
     st.caption("Use filters to update the dashboard. ")
 
-# subset data
+# subset data according to filters
 subset = df.copy()
 if channel != "All":
     subset = subset[subset["channel"]==channel]
@@ -386,11 +396,12 @@ if creative != "All":
     subset = subset[subset["creative"]==creative]
 subset = subset[(subset["date"]>=pd.to_datetime(start_date)) & (subset["date"]<=pd.to_datetime(end_date))]
 
+# handle empty subset
 if subset.empty:
     st.warning("No data for the selected filters/date range. Adjust filters.")
     st.stop()
 
-# compute PoP etc.
+# compute current and previous period (same length) for PoP
 curr_start, curr_end = pd.to_datetime(start_date), pd.to_datetime(end_date)
 period_days = (curr_end - curr_start).days + 1
 prev_end = curr_start - pd.Timedelta(days=1)
@@ -399,11 +410,13 @@ cur_kpis = compute_exec_kpis(subset)
 prev_subset = df[(df["date"]>=prev_start) & (df["date"]<=prev_end)]
 prev_kpis = compute_exec_kpis(prev_subset)
 
+# show filter summary
 filter_summary = f"Filters — Channel: {channel}; Campaign: {campaign}; Creative: {creative}; Date: {start_date} to {end_date}; Attribution: {st.session_state.get('attribution','Last click')}"
 st.caption(filter_summary)
 
-# KPI cards (kept same)
+# KPI area
 left, right = st.columns([2,3], gap="large")
+# set some simple targets/benchmarks
 benchmarks = {"mer":5.0, "gpm":0.50, "roas":3.0, "cac":8.0}
 
 with left:
@@ -431,6 +444,7 @@ with right:
         if gpm_delta is not None:
             colc = "#059669" if gpm_delta>0 else "#dc2626"
             st.markdown(f"<div style='color:{colc}'> {'▲' if gpm_delta>0 else '▼'} {abs(gpm_delta)*100:.1f}%</div>", unsafe_allow_html=True)
+        # show benchmark
         st.markdown(f"<div style='font-size:12px; color:#6b7280'>Target: {benchmarks['gpm']*100:.0f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -472,75 +486,55 @@ with right:
             st.markdown(f"<div style='color:{colc}'>{'▲' if profit_delta>0 else '▼'} {abs(profit_delta)*100:.1f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+# Improved AI insight (more actionable)
+insight = []
+if rev_delta is not None:
+    if rev_delta > 0.05:
+        insight.append(f"Revenue rose {rev_delta*100:.1f}% vs previous period — growth momentum.")
+    elif rev_delta < -0.05:
+        insight.append(f"Revenue fell {abs(rev_delta)*100:.1f}% vs previous period — review underperforming channels.")
+
+# channel-level drivers
+channel_changes = subset.groupby('channel').agg({'revenue':'sum','spend':'sum'}).reset_index()
+channel_changes_prev = prev_subset.groupby('channel').agg({'revenue':'sum','spend':'sum'}).reset_index()
+merged = channel_changes.merge(channel_changes_prev, on='channel', how='left', suffixes=('','_prev'))
+merged['rev_pop'] = merged.apply(lambda r: compute_pop(r['revenue'], r['revenue_prev'] if not np.isnan(r['revenue_prev']) else None), axis=1)
+if not merged.empty:
+    top = merged.sort_values('revenue', ascending=False).iloc[0]
+    insight.append(f"Top channel by revenue: {top['channel']} ({int(top['revenue']):,}).")
+    # recommendation
+    good_channels = merged[merged['rev_pop']>0.05]['channel'].tolist()
+    bad_channels = merged[merged['rev_pop']<-0.05]['channel'].tolist()
+    if good_channels:
+        insight.append(f"Consider allocating more budget to: {', '.join(good_channels)} — they show >5% PoP growth.")
+    if bad_channels:
+        insight.append(f"Investigate creative/targeting for: {', '.join(bad_channels)} — performance declined >5% PoP.")
+
+st.markdown(f"<div class='insight'><strong>AI Summary Insights:</strong><br>{'<br>'.join(insight)}</div>", unsafe_allow_html=True)
+
 st.markdown("---")
 
-# Tabs and remaining dashboard content
+# TABS
 tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"])
 
-# ---------------- Executive Overview (restored) ----------------
+# ===== Executive Overview tab =====
 with tabs[0]:
-    st.header("Executive Overview — Business Performance Summary")
+    st.subheader("Executive Overview — Revenue & Spend")
 
-    # High-level KPIs row
-    k1, k2, k3, k4 = st.columns(4, gap="large")
+    fig_spend_rev = plot_spend_revenue_trend(subset)
+    st.plotly_chart(fig_spend_rev, use_container_width=True)
 
-    with k1:
-        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Total Revenue</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>₹{cur_kpis['total_revenue']:,.0f}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(cur_kpis["total_revenue"], prev_kpis["total_revenue"]), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("**Customer Acquisition & Retention** — New vs Returning revenue over time (quick view)")
+    subset_agg = subset.groupby("date").agg({"revenue":"sum", "new_customers":"sum","returning_customers":"sum"}).reset_index()
+    subset_agg["new_rev"] = subset_agg["revenue"] * (subset_agg["new_customers"] / (subset_agg["new_customers"] + subset_agg["returning_customers"] + 1e-9))
+    subset_agg["ret_rev"] = subset_agg["revenue"] - subset_agg["new_rev"]
+    fig_nr = go.Figure()
+    fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["ret_rev"], stackgroup='one', name='Returning Customers', line=dict(color="#8b5cf6")))
+    fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["new_rev"], stackgroup='one', name='New Customers', line=dict(color=ACCENT_GREEN)))
+    fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
+    st.plotly_chart(fig_nr, use_container_width=True)
 
-    with k2:
-        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Total Spend</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>₹{cur_kpis['total_spend']:,.0f}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html_inverted(cur_kpis["total_spend"], prev_kpis["total_spend"]), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with k3:
-        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>MER (Marketing Efficiency)</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{cur_kpis['mer']:.2f}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(cur_kpis["mer"], prev_kpis["mer"]), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with k4:
-        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Total Profit</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>₹{cur_kpis['profit']:,.0f}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(cur_kpis["profit"], prev_kpis["profit"]), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Charts Section
-    cA, cB = st.columns(2, gap="large")
-
-    with cA:
-        st.subheader("Revenue & Spend Trend")
-        fig1 = plot_spend_revenue_trend(subset)
-        st.plotly_chart(fig1, use_container_width=True)
-
-    with cB:
-        st.subheader("ROAS by Channel")
-        fig2 = plot_roas_by_channel(subset)
-        st.plotly_chart(fig2, use_container_width=True)
-
-    st.markdown("---")
-
-    # Funnel + Contribution
-    f1, f2 = st.columns(2, gap="large")
-
-    with f1:
-        st.subheader("Marketing Funnel Overview")
-        st.plotly_chart(plot_funnel_bars(subset), use_container_width=True)
-
-    with f2:
-        st.subheader("Contribution Margin Breakdown")
-        st.plotly_chart(plot_contribution_waterfall(subset), use_container_width=True)
-
-# ---------------- CMO tab ----------------
+# ===== CMO View =====
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
 
@@ -552,6 +546,7 @@ with tabs[1]:
     prev_spend = prev_subset["spend"].sum()
     prev_conversions = prev_subset["conversions"].sum()
 
+    # Total Impressions
     with c1:
         total_imp = subset['impressions'].sum()
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
@@ -560,6 +555,7 @@ with tabs[1]:
         st.markdown(delta_html(total_imp, prev_impressions), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Click-Through Rate
     with c2:
         ctr_val = subset['clicks'].sum() / subset['impressions'].sum() if subset['impressions'].sum() > 0 else 0
         prev_ctr = prev_clicks / prev_impressions if prev_impressions > 0 else None
@@ -569,6 +565,7 @@ with tabs[1]:
         st.markdown(delta_html(ctr_val, prev_ctr), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Avg. CPM (inverted color semantics: decrease = green)
     with c3:
         cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
         prev_cpm = prev_spend / (prev_impressions/1000) if prev_impressions > 0 else None
@@ -578,6 +575,7 @@ with tabs[1]:
         st.markdown(delta_html_inverted(cpm_val, prev_cpm), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Avg. Conversion Rate
     with c4:
         cvr_val = subset['conversions'].sum() / subset['clicks'].sum() if subset['clicks'].sum() > 0 else 0
         prev_cvr = prev_conversions / prev_clicks if prev_clicks > 0 else None
@@ -588,7 +586,7 @@ with tabs[1]:
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
-    fig_roas = plot_roas_by_channel(subset, show_targets=True, targets={"roas":3.0})
+    fig_roas = plot_roas_by_channel(subset, show_targets=True, targets={"roas":benchmarks['roas']})
     st.plotly_chart(fig_roas, use_container_width=True)
 
     st.markdown("**Full Marketing Funnel** — identify drop-off points")
@@ -604,15 +602,12 @@ with tabs[1]:
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
     diag['roas'] = diag.apply(lambda r: (r['revenue']/r['spend']) if r['spend']>0 else np.nan, axis=1).round(2)
 
-    # sorting UI (keep a selectbox; removed Ascending checkbox)
+    # allow user to sort columns and download
     sort_by = st.selectbox("Sort campaign table by", options=['revenue','spend','roas','cpa','ctr','cvr'], index=0, key='sort_by')
-    # default direction: descending except cpa (lower is better)
-    if sort_by == 'cpa':
-        asc = True
-    else:
-        asc = False
-    diag_sorted = diag.sort_values(by=sort_by, ascending=asc)
+    sort_asc = st.checkbox("Ascending", value=False, key='sort_asc')
+    diag_sorted = diag.sort_values(by=sort_by, ascending=sort_asc)
 
+    # show table with simple conditional formatting using pandas styler
     try:
         styled = diag_sorted.head(200).style.format({
             'spend':'{:.2f}','impressions':'{:,}','clicks':'{:,}','conversions':'{:,}','revenue':'{:.2f}','ctr':'{:.2%}','cvr':'{:.2%}','cpa':'{:.2f}','roas':'{:.2f}'
@@ -624,9 +619,10 @@ with tabs[1]:
     csv = diag_sorted.to_csv(index=False).encode('utf-8')
     st.download_button(label="Download campaign diagnostics (CSV)", data=csv, file_name='campaign_diagnostics.csv', mime='text/csv')
 
-# ---------------- CFO tab ----------------
+# ===== CFO View =====
 with tabs[2]:
     st.header("CFO View — Financial Efficiency & Profitability")
+
     st.subheader("CFO KPIs")
     d1, d2, d3, d4 = st.columns(4, gap="large")
 
@@ -637,6 +633,7 @@ with tabs[2]:
     prev_returns = prev_subset["returns"].sum()
     prev_aov = prev_subset["aov"].mean() if not prev_subset.empty else None
 
+    # Marketing ROI
     with d1:
         if subset["spend"].sum() > 0:
             roi_val = (subset["revenue"].sum() - subset["spend"].sum()) / subset["spend"].sum()
@@ -650,6 +647,7 @@ with tabs[2]:
             st.markdown(delta_html(roi_val, prev_roi), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Gross Margin Rate
     with d2:
         if subset["revenue"].sum() > 0:
             gm_val = (subset["revenue"].sum() - subset["cogs"].sum()) / subset["revenue"].sum()
@@ -661,9 +659,10 @@ with tabs[2]:
         st.markdown(f"<div class='kpi-value'>{f'{gm_val*100:.2f}%'}" if gm_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
         if gm_val is not None:
             st.markdown(delta_html(gm_val, prev_gm), unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:12px; color:#6b7280'>Target: {0.50*100:.0f}%</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:12px; color:#6b7280'>Target: {benchmarks['gpm']*100:.0f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Average Order Value
     with d3:
         aov_val = subset['aov'].mean() if not subset.empty else None
         prev_aov_val = prev_aov
@@ -674,6 +673,7 @@ with tabs[2]:
             st.markdown(delta_html(aov_val, prev_aov_val), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Refund & Return Rate (inverted color semantics: decrease = green)
     with d4:
         refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else None
         prev_refund = prev_returns / prev_orders if prev_orders > 0 else None
@@ -686,8 +686,15 @@ with tabs[2]:
 
     fig_contrib = plot_contribution_waterfall(subset)
     st.plotly_chart(fig_contrib, use_container_width=True)
+
     st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
+
+    # small bottom KPIs (left intact, but heading removed)
+    aov = subset["aov"].mean()
+    refund_rate_display = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
+    st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
+    st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")

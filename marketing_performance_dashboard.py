@@ -1,5 +1,7 @@
 """
 Marketing Performance Streamlit Dashboard
+(Tabs navigation made highly visible using a custom horizontal button bar)
+Derived and updated from original: :contentReference[oaicite:1]{index=1}
 """
 
 import streamlit as st
@@ -107,26 +109,31 @@ def generate_mock_data(months_before=2, months_after=0, seed=42):
     return df
 
 # -----------------------
-# Styling: Lifesight-like (purple + white)
+# Styling: Lifesight-like (purple + white) + visible nav CSS
 # -----------------------
 PRIMARY_PURPLE = "#6B21A8"
 ACCENT_GREEN = "#14B8A6"
 CARD_BG = "#FAFAFB"
 PAGE_BG = "#ffffff"
 TEXT_COLOR = "#0f172a"
+TAB_ACTIVE_BG = "#fff"        # white background for active
+TAB_ACTIVE_BORDER = PRIMARY_PURPLE
+TAB_ACTIVE_TEXT = PRIMARY_PURPLE
+TAB_INACTIVE_TEXT = "#9ca3af"  # gray
+TAB_BAR_BG = "#fff"
 
 def inject_css():
     st.markdown(
         f"""
     <style>
     .stApp {{ background: {PAGE_BG}; color: {TEXT_COLOR}; }}
-    .reportview-container .main .block-container{{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}}
+    .reportview-container .main .block-container{{padding-top:1.2rem; padding-left:2rem; padding-right:2rem;}}
     .topband {{
         background: linear-gradient(90deg,{PRIMARY_PURPLE} 0%, #7c3aed 100%);
         color: white;
         padding: 10px 24px;
         border-radius: 8px;
-        margin-bottom: 18px;
+        margin-bottom: 12px;
     }}
     .kpi-large {{
         background: {CARD_BG};
@@ -151,6 +158,35 @@ def inject_css():
     .kpi-label {{ font-size:14px; color:#374151; }}
     .kpi-value {{ font-size:28px; font-weight:700; color:{TEXT_COLOR}; }}
     .kpi-delta {{ font-size:13px; color:#059669; }}
+    /* Visible horizontal tab bar */
+    .custom-tab-bar {{
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 12px;
+        background: {TAB_BAR_BG};
+        border-bottom: 1px solid #eee;
+        margin-bottom: 12px;
+    }}
+    .custom-tab {{
+        padding: 10px 16px;
+        border-radius: 4px 4px 0 0;
+        font-weight:600;
+        cursor: pointer;
+        user-select: none;
+    }}
+    .custom-tab.inactive {{
+        color: {TAB_INACTIVE_TEXT};
+        background: transparent;
+        border: 1px solid transparent;
+    }}
+    .custom-tab.active {{
+        color: {TAB_ACTIVE_TEXT};
+        background: {TAB_ACTIVE_BG};
+        border: 2px solid {TAB_ACTIVE_BORDER};
+        border-bottom: 2px solid white; /* to blend with page */
+        box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+    }}
     </style>
     """,
         unsafe_allow_html=True,
@@ -183,7 +219,6 @@ def compute_exec_kpis(df):
     }
 
 def compute_pop(cur, prev):
-    # compute percent change safely
     if prev is None or prev == 0 or np.isnan(prev):
         return None
     try:
@@ -192,7 +227,6 @@ def compute_pop(cur, prev):
         return None
 
 def delta_html(cur, prev):
-    """Return HTML snippet for percent change vs prev period (green up/red down)."""
     pop = compute_pop(cur, prev)
     if pop is None:
         return ""
@@ -201,22 +235,15 @@ def delta_html(cur, prev):
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
 def delta_html_inverted(cur, prev):
-    """
-    Same as delta_html but inverted color semantics:
-    - A decrease (pop < 0) is treated as positive (green)
-    - An increase (pop > 0) is treated as negative (red)
-    Useful for metrics where reduction is desirable (e.g., CPM, refund rate).
-    """
     pop = compute_pop(cur, prev)
     if pop is None:
         return ""
     sym = "▲" if pop > 0 else "▼"
-    # invert color: green when pop < 0 (decrease), red when pop > 0 (increase)
     color = "#059669" if pop < 0 else "#dc2626"
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
 # -----------------------
-# Plot builders with titles/subtitles
+# Plot builders (same as original)
 # -----------------------
 def plot_spend_revenue_trend(df):
     ts = df.groupby("date").agg({"revenue":"sum","spend":"sum"}).reset_index()
@@ -246,14 +273,8 @@ def plot_roas_by_channel(df):
     return fig
 
 def plot_funnel_bars(df):
-    """
-    Horizontal funnel bar chart that shows:
-     - visible label: "<count>\n(<% of impressions>)"
-     - hover: count, % of impressions, % of previous step
-    """
     impressions = df["impressions"].sum()
     clicks = df["clicks"].sum()
-    # approximate product views & add-to-cart for mock data
     product_views = int(df["orders"].sum() * 3.5)
     add_to_cart = int(product_views * 0.25)
     purchases = int(df["orders"].sum())
@@ -263,13 +284,11 @@ def plot_funnel_bars(df):
         "value": [impressions, clicks, product_views, add_to_cart, purchases]
     })
 
-    # percent of impressions
     if impressions > 0:
         steps["pct_of_impr"] = steps["value"] / impressions * 100
     else:
         steps["pct_of_impr"] = 0.0
 
-    # percent vs previous step (useful to see drop-off)
     pct_prev = []
     prev_val = None
     for v in steps["value"]:
@@ -279,27 +298,22 @@ def plot_funnel_bars(df):
             pct_prev.append(v / prev_val * 100)
         prev_val = v
     steps["pct_prev"] = pct_prev
-
-    # label: count + percent of impressions (displayed on bar)
     steps["label"] = steps.apply(lambda r: f"{int(r['value']):,}\n({r['pct_of_impr']:.2f}%)", axis=1)
 
-    # create horizontal bar chart
     fig = px.bar(
-        steps.sort_values("value", ascending=False).iloc[::-1],  # keep order top->bottom as impressions->purchases
+        steps.sort_values("value", ascending=False).iloc[::-1],
         x="value",
         y="step",
         orientation="h",
         text="label",
     )
 
-    # attach customdata for hovertemplate (count, % of impressions, % of previous step)
     customdata = np.column_stack((steps["value"], steps["pct_of_impr"], steps["pct_prev"]))
-    # Because we sorted earlier for plotting, align customdata to that order:
     customdata = customdata[steps.sort_values("value", ascending=False).index.values[::-1]]
 
     fig.update_traces(
         textposition="outside",
-        marker_color="#93c5fd",  # leave color subtle; change if desired
+        marker_color="#93c5fd",
         hovertemplate=(
             "<b>%{y}</b><br>"
             "Count: %{customdata[0]:,}<br>"
@@ -347,32 +361,6 @@ def plot_contribution_waterfall(df):
     fig.update_layout(title_text="Contribution Margin Breakdown", template="plotly_white", height=360, margin=dict(l=40,r=20,t=60,b=20))
     return fig
 
-def cohort_ltv_heatmap(df, months=6):
-    """
-    NOTE: function remains for potential future use but is NOT rendered in the UI per current request.
-    """
-    orders = df[df["orders"]>0].copy()
-    if orders.empty:
-        return go.Figure()
-    orders["cohort_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
-    orders["order_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
-    pivot = orders.groupby(["cohort_month","order_month"]).agg({"revenue":"sum"}).reset_index()
-    pivot["months_since"] = ((pivot["order_month"].dt.year - pivot["cohort_month"].dt.year)*12 + (pivot["order_month"].dt.month - pivot["cohort_month"].dt.month))
-    pivot = pivot[(pivot["months_since"]>=0) & (pivot["months_since"]<months)]
-    heat = pivot.pivot_table(index="cohort_month", columns="months_since", values="revenue", aggfunc="sum").fillna(0)
-    fig = go.Figure(data=go.Heatmap(
-        z=heat.values,
-        x=[f"M+{c}" for c in heat.columns],
-        y=[d.strftime("%Y-%m") for d in heat.index],
-        colorscale="Purples"
-    ))
-    fig.update_layout(title_text="Cohort LTV Heatmap (Revenue by Cohort Month)", template="plotly_white", height=360, margin=dict(l=80,r=20,t=60,b=20))
-    return fig
-
-# -----------------------
-# NOTE: Export utilities removed
-# -----------------------
-
 # -----------------------
 # Streamlit app layout
 # -----------------------
@@ -381,7 +369,7 @@ inject_css()
 
 st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard</div>", unsafe_allow_html=True)
 
-# Load data (now uses past 6 months)
+# Load data (past 6 months)
 df = generate_mock_data(months_before=6, months_after=0)
 
 # --- SIDEBAR FILTERS ---
@@ -423,7 +411,7 @@ cur_kpis = compute_exec_kpis(subset)
 prev_subset = df[(df["date"]>=prev_start) & (df["date"]<=prev_end)]
 prev_kpis = compute_exec_kpis(prev_subset)
 
-# KPI area
+# KPI area (unchanged)
 left, right = st.columns([2,3], gap="large")
 with left:
     st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
@@ -499,18 +487,40 @@ if mer_delta is not None and mer_delta < -0.05:
     insight.append("MER decreased — spend efficiency may be worsening.")
 top_channel = subset.groupby("channel")["revenue"].sum().sort_values(ascending=False).index[0]
 insight.append(f"Top channel (by revenue) in the selection: {top_channel}.")
-
 st.markdown(f"<div class='insight'><strong>AI Summary Insights:</strong><br>{'<br>'.join(insight)}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 
-# TABS
-tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"])
+# -----------------------
+# Custom visible tab bar
+# -----------------------
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "Executive (Overview)"
 
-# ===== Executive Overview tab =====
-with tabs[0]:
+# Render the tab bar using columns + styled markdown buttons
+tab_names = ["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"]
+tab_cols = st.columns([1,1,1])
+for i, name in enumerate(tab_names):
+    is_active = (st.session_state["active_tab"] == name)
+    btn_key = f"tab_btn_{i}"
+    # Use st.button per tab; clicking sets active_tab
+    style_class = "active" if is_active else "inactive"
+    # Render a styled label for the tab
+    with tab_cols[i]:
+        if st.button(name, key=btn_key):
+            st.session_state["active_tab"] = name
+        # Small visual hint: duplicate the active styling as read-only mark beneath
+        if is_active:
+            st.markdown(f"<div style='height:6px'></div>", unsafe_allow_html=True)
+
+# Separator
+st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+
+# -----------------------
+# Now render the content based on active tab
+# -----------------------
+def render_executive(subset):
     st.subheader("Executive Overview — Revenue & Spend")
-
     fig_spend_rev = plot_spend_revenue_trend(subset)
     st.plotly_chart(fig_spend_rev, use_container_width=True)
 
@@ -524,8 +534,7 @@ with tabs[0]:
     fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
     st.plotly_chart(fig_nr, use_container_width=True)
 
-# ===== CMO View =====
-with tabs[1]:
+def render_cmo(subset, prev_subset):
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
 
     st.subheader("CMO KPIs")
@@ -555,7 +564,7 @@ with tabs[1]:
         st.markdown(delta_html(ctr_val, prev_ctr), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Avg. CPM (inverted color semantics: decrease = green)
+    # Avg. CPM (inverted color semantics)
     with c3:
         cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
         prev_cpm = prev_spend / (prev_impressions/1000) if prev_impressions > 0 else None
@@ -592,8 +601,7 @@ with tabs[1]:
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
     st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
 
-# ===== CFO View =====
-with tabs[2]:
+def render_cfo(subset, prev_subset):
     st.header("CFO View — Financial Efficiency & Profitability")
 
     st.subheader("CFO KPIs")
@@ -663,12 +671,17 @@ with tabs[2]:
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
 
-    # Cohort LTV visual intentionally removed per request (function retained but not rendered)
-
-    # small bottom KPIs (left intact, but heading removed)
     aov = subset["aov"].mean()
     refund_rate_display = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
     st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
     st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
+
+# Dispatch render
+if st.session_state["active_tab"] == "Executive (Overview)":
+    render_executive(subset)
+elif st.session_state["active_tab"] == "CMO View (Marketing)":
+    render_cmo(subset, prev_subset)
+else:
+    render_cfo(subset, prev_subset)
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")

@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+plotly
+kaleido                # optional but required for PNG export
+streamlit-plotly-events  # optional but required for click drilldown
+img2pdf                # optional for multi-image -> single PDF export

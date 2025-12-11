@@ -3,6 +3,7 @@
 # - removed granularity filter
 # - improved download button visibility via CSS
 # - removed the checkbox and replaced with a sort-order selectbox
+# - made "Sort campaign table by" and "Sort order" labels explicitly visible (high-contrast)
 
 import streamlit as st
 import pandas as pd
@@ -165,6 +166,14 @@ def inject_css():
     /* ensure tables have some spacing */
     .element-container .stDataFrame {{
         padding: 6px;
+    }}
+
+    /* Visible labels for select controls (centralized class in case we want to reuse) */
+    .visible-select-label {{
+        font-weight:700;
+        font-size:14px;
+        margin-bottom:6px;
+        color: #111827;
     }}
     </style>
     """,
@@ -615,11 +624,12 @@ with tabs[1]:
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
     diag['roas'] = diag.apply(lambda r: (r['revenue']/r['spend']) if r['spend']>0 else np.nan, axis=1).round(2)
 
-    # allow user to sort columns and download
-    sort_by = st.selectbox("Sort campaign table by", options=['revenue','spend','roas','cpa','ctr','cvr'], index=0, key='sort_by')
+    # Visible labels for the sort controls (was not visible before)
+    st.markdown("<div class='visible-select-label'>Sort campaign table by</div>", unsafe_allow_html=True)
+    sort_by = st.selectbox("", options=['revenue','spend','roas','cpa','ctr','cvr'], index=0, key='sort_by')
 
-    # REPLACED checkbox with a selectbox per request (removes checkbox UI highlighted in screenshot)
-    sort_order = st.selectbox("Sort order", options=["Descending", "Ascending"], index=0, key="sort_order")
+    st.markdown("<div class='visible-select-label' style='margin-top:12px;'>Sort order</div>", unsafe_allow_html=True)
+    sort_order = st.selectbox("", options=["Descending", "Ascending"], index=0, key="sort_order")
     sort_asc = True if sort_order == "Ascending" else False
 
     diag_sorted = diag.sort_values(by=sort_by, ascending=sort_asc)

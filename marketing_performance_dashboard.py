@@ -1,12 +1,8 @@
-"""
-Updated Marketing Performance Streamlit Dashboard
-- Incorporates UX + analytical improvements requested by user
-- Key changes: reset filters, attribution selector stub, download CSV, target/benchmark in KPI cards,
-  improved AI insights with recommendations, 7-day rolling CAC line, export options, filter summary,
-  campaign table sorting + simple conditional formatting, show last updated timestamp, granularity selector.
-
-Original file (for reference) uploaded by user: Lifesight_MarketingPerformance_Dashboard.py. :contentReference[oaicite:1]{index=1}
-"""
+# Lifesight_MarketingPerformance_Dashboard_V2.py
+# Updated per user's request:
+# - removed granularity filter
+# - improved download button visibility via CSS
+# - removed the checkbox and replaced with a sort-order selectbox
 
 import streamlit as st
 import pandas as pd
@@ -156,6 +152,20 @@ def inject_css():
     .kpi-label {{ font-size:14px; color:#374151; }}
     .kpi-value {{ font-size:28px; font-weight:700; color:{TEXT_COLOR}; }}
     .kpi-delta {{ font-size:13px; color:#059669; }}
+
+    /* Make download button text visible (higher contrast) */
+    .stDownloadButton>button {{
+        color: #ffffff !important;
+        background-color: #111827 !important;
+        border-radius: 8px !important;
+        padding: 8px 14px !important;
+        font-weight:600 !important;
+    }}
+
+    /* ensure tables have some spacing */
+    .element-container .stDataFrame {{
+        padding: 6px;
+    }}
     </style>
     """,
         unsafe_allow_html=True,
@@ -367,7 +377,8 @@ with st.sidebar:
     # Reset filters button
     if st.button("Reset filters"):
         # clear session state keys used for filters
-        for k in ["channel","campaign","creative","start_date","end_date","granularity","attribution","sort_by","sort_asc"]:
+        # removed 'granularity' from this list per request
+        for k in ["channel","campaign","creative","start_date","end_date","attribution","sort_by","sort_asc"]:
             if k in st.session_state:
                 del st.session_state[k]
         st.experimental_rerun()
@@ -381,7 +392,9 @@ with st.sidebar:
     end_date = st.date_input("End date", value=df["date"].max().date(), key="end_date")
 
     st.markdown("---")
-    st.radio("Granularity", options=["Daily","Weekly","Monthly"], index=0, key="granularity")
+    # Removed granularity radio widget per request
+    # st.radio("Granularity", options=["Daily","Weekly","Monthly"], index=0, key="granularity")
+
     st.selectbox("Attribution model (view only)", options=["Last click","Linear","Data-driven"], index=0, key="attribution")
     st.markdown("---")
     st.caption("Use filters to update the dashboard. ")
@@ -604,7 +617,11 @@ with tabs[1]:
 
     # allow user to sort columns and download
     sort_by = st.selectbox("Sort campaign table by", options=['revenue','spend','roas','cpa','ctr','cvr'], index=0, key='sort_by')
-    sort_asc = st.checkbox("Ascending", value=False, key='sort_asc')
+
+    # REPLACED checkbox with a selectbox per request (removes checkbox UI highlighted in screenshot)
+    sort_order = st.selectbox("Sort order", options=["Descending", "Ascending"], index=0, key="sort_order")
+    sort_asc = True if sort_order == "Ascending" else False
+
     diag_sorted = diag.sort_values(by=sort_by, ascending=sort_asc)
 
     # show table with simple conditional formatting using pandas styler
@@ -617,6 +634,7 @@ with tabs[1]:
         st.dataframe(diag_sorted.head(200), use_container_width=True)
 
     csv = diag_sorted.to_csv(index=False).encode('utf-8')
+    # Download button label & CSS updated to ensure visibility
     st.download_button(label="Download campaign diagnostics (CSV)", data=csv, file_name='campaign_diagnostics.csv', mime='text/csv')
 
 # ===== CFO View =====

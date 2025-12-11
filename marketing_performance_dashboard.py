@@ -1,9 +1,4 @@
 # Lifesight_MarketingPerformance_Dashboard_V2.py
-# Updated per user's request:
-# - removed granularity filter
-# - improved download button visibility via CSS
-# - removed the checkbox and replaced with a sort-order selectbox
-# - made "Sort campaign table by" and "Sort order" labels explicitly visible (high-contrast)
 
 import streamlit as st
 import pandas as pd
@@ -284,33 +279,26 @@ def plot_funnel_bars(df):
         "value": [impressions, clicks, product_views, add_to_cart, purchases]
     })
 
-    if impressions > 0:
-        steps["pct_of_impr"] = steps["value"] / impressions * 100
-    else:
-        steps["pct_of_impr"] = 0.0
+    steps["pct_of_impr"] = steps["value"] / impressions * 100 if impressions > 0 else 0
 
     pct_prev = []
     prev_val = None
     for v in steps["value"]:
-        if prev_val is None or prev_val == 0:
-            pct_prev.append(100.0 if prev_val is None else 0.0)
-        else:
-            pct_prev.append(v / prev_val * 100)
+        pct_prev.append(100 if prev_val is None else (v / prev_val * 100 if prev_val > 0 else 0))
         prev_val = v
     steps["pct_prev"] = pct_prev
 
     steps["label"] = steps.apply(lambda r: f"{int(r['value']):,}\n({r['pct_of_impr']:.2f}%)", axis=1)
 
+    customdata = np.column_stack((steps["value"], steps["pct_of_impr"], steps["pct_prev"]))
+
     fig = px.bar(
-        steps.sort_values("value", ascending=False).iloc[::-1],
+        steps,
         x="value",
         y="step",
         orientation="h",
-        text="label",
+        text="label"
     )
-
-    customdata = np.column_stack((steps["value"], steps["pct_of_impr"], steps["pct_prev"]))
-    customdata = customdata[steps.sort_values("value", ascending=False).index.values[::-1]]
 
     fig.update_traces(
         textposition="outside",

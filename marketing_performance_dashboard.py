@@ -1,5 +1,6 @@
-# Lifesight_MarketingPerformance_Dashboard_V2_updated.py
-# Updated: make sidebar labels & download button visible, remove Granularity filter.
+# Lifesight_MarketingPerformance_Dashboard_V2_final.py
+# Final: sidebar label & download button visibility fixes, granularity removed, ascending checkbox removed,
+# smart sorting, and Executive Overview restored.
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -218,7 +219,7 @@ def delta_html_inverted(cur, prev):
     color = "#059669" if pop < 0 else "#dc2626"
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
-# ------------- Plot builders (same as before) -------------
+# ------------- Plot builders -------------
 def plot_spend_revenue_trend(df):
     ts = df.groupby("date").agg({"revenue":"sum","spend":"sum"}).reset_index()
     fig = go.Figure()
@@ -473,9 +474,73 @@ with right:
 
 st.markdown("---")
 
-# Tabs and remaining dashboard content are unchanged from original — CMO tab below
+# Tabs and remaining dashboard content
 tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"])
 
+# ---------------- Executive Overview (restored) ----------------
+with tabs[0]:
+    st.header("Executive Overview — Business Performance Summary")
+
+    # High-level KPIs row
+    k1, k2, k3, k4 = st.columns(4, gap="large")
+
+    with k1:
+        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Total Revenue</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>₹{cur_kpis['total_revenue']:,.0f}</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(cur_kpis["total_revenue"], prev_kpis["total_revenue"]), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with k2:
+        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Total Spend</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>₹{cur_kpis['total_spend']:,.0f}</div>", unsafe_allow_html=True)
+        st.markdown(delta_html_inverted(cur_kpis["total_spend"], prev_kpis["total_spend"]), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with k3:
+        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>MER (Marketing Efficiency)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{cur_kpis['mer']:.2f}</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(cur_kpis["mer"], prev_kpis["mer"]), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with k4:
+        st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Total Profit</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>₹{cur_kpis['profit']:,.0f}</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(cur_kpis["profit"], prev_kpis["profit"]), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Charts Section
+    cA, cB = st.columns(2, gap="large")
+
+    with cA:
+        st.subheader("Revenue & Spend Trend")
+        fig1 = plot_spend_revenue_trend(subset)
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with cB:
+        st.subheader("ROAS by Channel")
+        fig2 = plot_roas_by_channel(subset)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown("---")
+
+    # Funnel + Contribution
+    f1, f2 = st.columns(2, gap="large")
+
+    with f1:
+        st.subheader("Marketing Funnel Overview")
+        st.plotly_chart(plot_funnel_bars(subset), use_container_width=True)
+
+    with f2:
+        st.subheader("Contribution Margin Breakdown")
+        st.plotly_chart(plot_contribution_waterfall(subset), use_container_width=True)
+
+# ---------------- CMO tab ----------------
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
 
@@ -559,7 +624,7 @@ with tabs[1]:
     csv = diag_sorted.to_csv(index=False).encode('utf-8')
     st.download_button(label="Download campaign diagnostics (CSV)", data=csv, file_name='campaign_diagnostics.csv', mime='text/csv')
 
-# CFO tab remains same (unchanged)
+# ---------------- CFO tab ----------------
 with tabs[2]:
     st.header("CFO View — Financial Efficiency & Profitability")
     st.subheader("CFO KPIs")

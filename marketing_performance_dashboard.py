@@ -109,41 +109,41 @@ PAGE_BG = "#ffffff"
 TEXT_COLOR = "#0f172a"
 
 def inject_css():
-    st.markdown(
-        f"""
+    # Use a plain triple-quoted string and replace placeholders to avoid f-string brace issues.
+    css = """
     <style>
-    .stApp {{ background: {PAGE_BG}; color: {TEXT_COLOR}; }}
-    .reportview-container .main .block-container{{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}}
-    .topband {{
+    .stApp { background: {PAGE_BG}; color: {TEXT_COLOR}; }
+    .reportview-container .main .block-container{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}
+    .topband {
         background: linear-gradient(90deg,{PRIMARY_PURPLE} 0%, #7c3aed 100%);
         color: white;
         padding: 10px 24px;
         border-radius: 8px;
         margin-bottom: 6px;
-    }}
-    .kpi-large {{
+    }
+    .kpi-large {
         background: {CARD_BG};
         padding: 18px;
         border-radius: 10px;
         box-shadow: 0 4px 14px rgba(0,0,0,0.08);
         color: {TEXT_COLOR};
-    }}
-    .kpi-small {{
+    }
+    .kpi-small {
         background: {CARD_BG};
         padding: 12px;
         border-radius: 8px;
         box-shadow: 0 3px 10px rgba(0,0,0,0.06);
         color: {TEXT_COLOR};
-    }}
-    .insight {{
+    }
+    .insight {
         background: #f8fafc;
         padding: 12px;
         border-radius: 8px;
         color: {TEXT_COLOR};
-    }}
-    .kpi-label {{ font-size:14px; color:#374151; }}
-    .kpi-value {{ font-size:28px; font-weight:700; color:{TEXT_COLOR}; }}
-    .kpi-delta {{ font-size:13px; color:#059669; }}
+    }
+    .kpi-label { font-size:14px; color:#374151; }
+    .kpi-value { font-size:28px; font-weight:700; color:{TEXT_COLOR}; }
+    .kpi-delta { font-size:13px; color:#059669; }
 
     /* Sidebar label/selectbox and download button visibility on dark sidebar */
     div[data-testid="stSidebar"] label,
@@ -167,9 +167,9 @@ def inject_css():
     /* small safeguard for checkbox labels in sidebar */
     div[data-testid="stSidebar"] .stCheckbox label { color: #ffffff !important; }
     </style>
-    """,
-        unsafe_allow_html=True,
-    )
+    """
+    css = css.replace("{PAGE_BG}", PAGE_BG).replace("{TEXT_COLOR}", TEXT_COLOR).replace("{PRIMARY_PURPLE}", PRIMARY_PURPLE).replace("{CARD_BG}", CARD_BG)
+    st.markdown(css, unsafe_allow_html=True)
 
 def compute_exec_kpis(df):
     total_revenue = df["revenue"].sum()
